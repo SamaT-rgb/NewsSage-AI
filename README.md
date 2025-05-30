@@ -28,19 +28,19 @@ cd NewsSage-AI
 Ensure you have Python 3.8 or higher installed.
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-3. Install Python Dependencies
+### 3. Install Python Dependencies
 pip install -r requirements.txt
 
-4. Set Up Environment Variables
+### 4. Set Up Environment Variables
 Create a .env file in the root directory and add your Google API key:
 GOOGLE_API_KEY=your_google_api_key_here
 
-5. Run the Application
+### 5. Run the Application
 streamlit run app.py
 After a few seconds, the application should be accessible at:
 📍 http://localhost:8501/
 
-📂 Project Structure
+### 📂 Project Structure
 NewsSage-AI/
 ├── app.py
 ├── requirements.txt
@@ -48,7 +48,7 @@ NewsSage-AI/
 ├── Langchain_prj1.png
 ├── faiss_index_google/
 └── ...
-📝 Notes
+### 📝 Notes
 Replace your_google_api_key_here with your actual Google API key.
 
 Ensure that all dependencies are installed before running the application.

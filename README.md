@@ -2,7 +2,7 @@
 
 **NewsSage AI** is an intelligent assistant designed to extract insights from financial news articles. Leveraging Google's **Gemini 2.0 Flash** model, it allows users to interactively analyze articles, generate embeddings with **OpenAI**, and perform rapid similarity searches using **FAISS**.
 
-![NewsSage AI Interface](https://raw.githubusercontent.com/SamaT-rgb/NewsSage-AI/main/Langchain_prj1.png)
+![NewsSage AI Interface](https://raw.githubusercontent.com/SamaT-rgb/NewsSage-AI/main/Langchain_prj3.png)
 
 ---
 

@@ -1,0 +1,24 @@
+# Ignore virtual environments
+myenv/
+myenv_old/
+
+# Ignore environment/config files
+.env
+
+# Ignore FAISS index folder and serialized store
+faiss_index_google/
+faiss_store_google.pkl
+
+# Ignore Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Ignore Jupyter notebooks and VSCode settings (optional)
+*.ipynb
+.vscode/
+
+# Ignore OS/system-specific files
+.DS_Store
+Thumbs.db

@@ -1,4 +1,4 @@
-# 🧠 NewsSage AI: Interactive News Research Assistant
+# 🧠 _NewsSage AI: Interactive News Research Assistant
 
 **NewsSage AI** is an intelligent assistant designed to extract insights from financial news articles. Leveraging Google's **Gemini 2.0 Flash** model, it allows users to interactively analyze articles, generate embeddings with **OpenAI**, and perform rapid similarity searches using **FAISS**.
 

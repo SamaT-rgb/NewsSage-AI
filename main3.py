@@ -1,13 +1,13 @@
 import os
 import streamlit as st
-import time # Keep for any UI delays you might want
 import traceback
-import shutil # For removing directory if FAISS load fails
+import shutil
 
-# Langchain imports
-from langchain.chains import RetrievalQAWithSourcesChain
+# Langchain imports for conversational memory
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import UnstructuredURLLoader # Corrected import
+from langchain_community.document_loaders import UnstructuredURLLoader
 from langchain_community.vectorstores import FAISS
 
 # Google AI specific imports
@@ -17,46 +17,52 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 load_dotenv()
 
-st.set_page_config(layout="wide") # Use a wider layout for chat
-st.title("Samarth News Research Tool 📈 (Chat Mode)")
+# --- Page and App Configuration ---
+st.set_page_config(layout="wide")
+st.title("Samarth News Research Tool 📈 (True Chat Mode)")
 
 # --- Google AI Configuration and Initialization (runs once) ---
-google_api_key = os.getenv("GOOGLE_API_KEY")
-if not google_api_key:
-    st.error("🔴 GOOGLE_API_KEY not found in .env file. Please set it to use Google AI.")
-    st.stop()
-else:
+@st.cache_resource
+def configure_google_ai():
+    """Initializes Google AI models and returns them."""
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    if not google_api_key:
+        st.error("🔴 GOOGLE_API_KEY not found in .env file. Please set it to use Google AI.")
+        st.stop()
+    
     try:
         genai.configure(api_key=google_api_key)
+        
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash-latest", # A powerful and recent model
+            temperature=0.7,
+            convert_system_message_to_human=True
+        )
+        embeddings_instance = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        
+        return llm, embeddings_instance
     except Exception as e:
-        st.error(f"🔴 Error configuring Google AI SDK: {e}. Ensure the key is valid.")
+        st.error(f"🔴 Error initializing Google AI components: {e}.")
         print(traceback.format_exc())
         st.stop()
 
-# Initialize LLM and Embeddings - these can be global as they don't change per session
-try:
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash", # Using a more recent model if available
-        temperature=0.7,
-        # max_output_tokens=2048, # Gemini models often have larger context/output
-        convert_system_message_to_human=True
-    )
-    embeddings_instance = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-except Exception as e:
-    st.error(f"Error initializing Google AI components: {e}. "
-             "Check API key, permissions, and installed packages.")
-    print(traceback.format_exc())
-    st.stop()
+llm, embeddings_instance = configure_google_ai()
 
 # --- Session State Initialization ---
 if "vectorstore" not in st.session_state:
     st.session_state.vectorstore = None
 if "messages" not in st.session_state:
-    st.session_state.messages = [] # To store chat history {role: "user/assistant", content: "..."}
+    st.session_state.messages = []
 if "processed_urls" not in st.session_state:
-    st.session_state.processed_urls = [] # To show which URLs are currently loaded
+    st.session_state.processed_urls = []
+# Initialize the memory object for the conversation chain
+if "memory" not in st.session_state:
+    st.session_state.memory = ConversationBufferMemory(
+        memory_key="chat_history", 
+        return_messages=True
+    )
 
-folder_path = "faiss_index_google" # Folder to save/load FAISS index
+folder_path = "faiss_index_google"
 
 # --- Sidebar for URL inputs and Controls ---
 with st.sidebar:
@@ -80,15 +86,11 @@ with st.sidebar:
                     )
                     data = loader.load()
                     if not data:
-                        st.error("No data could be loaded from the provided URLs. Check URLs and website accessibility.")
+                        st.error("No data could be loaded. Check URLs and website accessibility.")
                         st.stop()
 
                     st.info("Splitting text into chunks...")
-                    text_splitter = RecursiveCharacterTextSplitter(
-                        separators=['\n\n', '\n', '.', ','],
-                        chunk_size=1000,
-                        chunk_overlap=200
-                    )
+                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                     docs = text_splitter.split_documents(data)
                     if not docs:
                         st.error("Failed to split the documents into processable chunks.")
@@ -101,9 +103,11 @@ with st.sidebar:
                     st.session_state.vectorstore.save_local(folder_path)
                     
                     st.session_state.processed_urls = urls_to_process
-                    st.session_state.messages = [{"role": "assistant", "content": f"Successfully processed {len(urls_to_process)} URLs. Ask me anything about them!"}] # Reset chat
+                    st.session_state.messages = [{"role": "assistant", "content": f"Successfully processed {len(urls_to_process)} URLs. Ask me anything about them!"}]
+                    st.session_state.memory.clear() # Clear memory for the new conversation
+                    
                     st.success("✅ URLs processed and ready!")
-                    st.rerun() # Rerun to update main chat interface
+                    st.rerun()
 
                 except Exception as e:
                     st.error(f"An error occurred during URL processing: {e}")
@@ -114,26 +118,17 @@ with st.sidebar:
         if os.path.exists(folder_path) and os.path.isdir(folder_path):
             try:
                 with st.spinner("Loading existing knowledge base..."):
-                    st.session_state.vectorstore = FAISS.load_local(
-                        folder_path,
-                        embeddings_instance,
-                        allow_dangerous_deserialization=True # Be cautious with this in untrusted environments
-                    )
+                    st.session_state.vectorstore = FAISS.load_local(folder_path, embeddings_instance, allow_dangerous_deserialization=True)
+                
                 st.session_state.messages = [{"role": "assistant", "content": "Loaded existing knowledge base. Ask me anything!"}]
-                # Try to infer processed URLs if possible (e.g., store them with the index, or just show a generic message)
-                st.session_state.processed_urls = ["Previously processed (details not stored with index)"]
+                st.session_state.processed_urls = ["Previously processed"]
+                st.session_state.memory.clear() # Clear memory for the new conversation
+                
                 st.success("✅ Existing index loaded!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Could not load existing index: {e}. The index might be corrupted or incompatible.")
+                st.error(f"Could not load existing index: {e}. It may be corrupted.")
                 print(traceback.format_exc())
-                # Optionally remove corrupted index
-                # if st.checkbox("Delete corrupted index and retry processing?"):
-                #     try:
-                #         shutil.rmtree(folder_path)
-                #         st.warning(f"Removed index at '{folder_path}'. Please process URLs again.")
-                #     except Exception as rm_e:
-                #         st.error(f"Failed to remove index folder: {rm_e}")
         else:
             st.warning(f"No existing index found at '{folder_path}'. Please process URLs first.")
 
@@ -141,6 +136,7 @@ with st.sidebar:
         st.subheader("Currently Loaded Articles:")
         for url_item in st.session_state.processed_urls:
             st.caption(f"- {url_item[:70]}..." if len(url_item) > 70 else f"- {url_item}")
+
 
 # --- Main Chat Interface ---
 
@@ -150,53 +146,47 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Accept user input
-if prompt := st.chat_input("Ask a question about the articles:"):
-    # Add user message to chat history
+if prompt := st.chat_input("Ask a follow-up question:"):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    # Display user message in chat message container
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Check if vectorstore is loaded
     if st.session_state.vectorstore is None:
         with st.chat_message("assistant"):
-            response = "I don't have any articles loaded yet. Please process some URLs using the sidebar."
-            st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+            st.markdown("I don't have any articles loaded yet. Please process some URLs using the sidebar.")
     else:
-        # Generate and display assistant response
         with st.chat_message("assistant"):
             with st.spinner("Thinking... 🤔"):
                 try:
-                    chain = RetrievalQAWithSourcesChain.from_llm(
+                    # Create the conversational chain with memory
+                    conversation_chain = ConversationalRetrievalChain.from_llm(
                         llm=llm,
-                        retriever=st.session_state.vectorstore.as_retriever()
+                        retriever=st.session_state.vectorstore.as_retriever(),
+                        memory=st.session_state.memory,
+                        return_source_documents=True
                     )
-                    result = chain.invoke({"question": prompt}) # Use invoke for newer Langchain
-                    # result will be a dictionary, e.g. --> {"question": ..., "answer": ..., "sources": ... }
-                    
-                    answer = result.get("answer", "Sorry, I couldn't find an answer.")
-                    sources = result.get("sources", "")
 
-                    response_content = f"{answer}"
-                    if sources:
-                        # Format sources nicely
-                        sources_list = []
-                        if isinstance(sources, str):
-                            sources_list = [s.strip() for s in sources.split('\n') if s.strip()]
-                        elif isinstance(sources, list): # Some chains might return a list
-                            sources_list = [str(s).strip() for s in sources if str(s).strip()]
-                        
-                        if sources_list:
-                            response_content += "\n\n**📚 Sources:**\n"
-                            for src_item in list(set(sources_list)): # Show unique sources
-                                response_content += f"- {src_item}\n"
+                    # Invoke the chain, which automatically uses the memory
+                    result = conversation_chain.invoke({"question": prompt})
+                    answer = result["answer"]
                     
+                    response_content = answer
+                    
+                    # Handle the source documents
+                    if result.get("source_documents"):
+                        response_content += "\n\n**📚 Sources:**\n"
+                        sources = set() # Use a set to auto-handle duplicate URLs
+                        for doc in result["source_documents"]:
+                            if 'source' in doc.metadata:
+                                sources.add(doc.metadata['source'])
+                        for src in sources:
+                            response_content += f"- {src}\n"
+
                     st.markdown(response_content)
                     st.session_state.messages.append({"role": "assistant", "content": response_content})
 
                 except Exception as e:
-                    error_message = f"An error occurred while searching for an answer: {e}"
+                    error_message = f"An error occurred: {e}"
                     st.error(error_message)
                     print(traceback.format_exc())
                     st.session_state.messages.append({"role": "assistant", "content": f"⚠️ Error: {error_message}"})
